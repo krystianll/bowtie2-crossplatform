@@ -42,6 +42,9 @@
 #include "read.h"
 #include "util.h"
 #include "concurrentqueue.h"
+#ifdef WITH_BZIP2   // bowtie2-crossplatform: native bzip2 input
+#include "bzip2_reader.h"
+#endif
 #ifdef WITH_ZSTD
 #include "zstd_decompress.h"
 #endif
@@ -353,6 +356,9 @@ class CFilePatternSource : public PatternSource {
 	enum CompressionType {
 		NONE,
 		GZIP,
+#ifdef WITH_BZIP2   // bowtie2-crossplatform: native bzip2 input
+		BZIP2,
+#endif
 #ifdef WITH_ZSTD
 		ZSTD,
 #endif
@@ -395,6 +401,11 @@ public:
 				assert(zfp_ != NULL);
 				gzclose(zfp_);
 				break;
+#ifdef WITH_BZIP2   // bowtie2-crossplatform: native bzip2 input
+			case CompressionType::BZIP2:
+				bz2Close(bz2fp_);
+				break;
+#endif
 #ifdef WITH_ZSTD
 			case CompressionType::ZSTD:
 				assert(zstdfp_ != NULL);
@@ -456,6 +467,10 @@ protected:
 		do {
 			if (compressionType_ == CompressionType::GZIP)
 				c = gzgetc(zfp_);
+#ifdef WITH_BZIP2   // bowtie2-crossplatform: native bzip2 input
+			else if (compressionType_ == CompressionType::BZIP2)
+				c = bz2Getc(bz2fp_);
+#endif
 #ifdef WITH_ZSTD
 			else if (compressionType_ == CompressionType::ZSTD)
 				c = zstdGetc(zstdfp_);
@@ -470,6 +485,10 @@ protected:
 	int ungetc_wrapper(int c) {
 		if (compressionType_ == CompressionType::GZIP)
 			return gzungetc(c, zfp_);
+#ifdef WITH_BZIP2   // bowtie2-crossplatform: native bzip2 input
+		else if (compressionType_ == CompressionType::BZIP2)
+			return bz2Ungetc(c, bz2fp_);
+#endif
 #ifdef WITH_ZSTD
 		else if (compressionType_ == CompressionType::ZSTD)
 			return zstdUngetc(c, zstdfp_);
@@ -534,6 +553,9 @@ protected:
 	size_t filecur_;		 // index into infiles_ of next file to read
 	FILE *fp_;			 // read file currently being read from
 	gzFile zfp_;			 // compressed version of fp_
+#ifdef WITH_BZIP2   // bowtie2-crossplatform: native bzip2 input
+	bz2Strm *bz2fp_ = NULL;		 // bzip2 compressed file
+#endif
 #ifdef WITH_ZSTD
 	zstdStrm *zstdfp_;	         // zstd compressed file
 #endif

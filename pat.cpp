@@ -497,6 +497,12 @@ void CFilePatternSource::open() {
 			gzclose(zfp_);
 			zfp_ = NULL;
 			break;
+#ifdef WITH_BZIP2   // bowtie2-crossplatform: native bzip2 input
+		case CompressionType::BZIP2:
+			bz2Close(bz2fp_);
+			bz2fp_ = NULL;
+			break;
+#endif
 #ifdef WITH_ZSTD
 		case CompressionType::ZSTD:
 			zstdClose(zstdfp_);
@@ -554,6 +560,11 @@ void CFilePatternSource::open() {
 				SET_BINARY_MODE(fd);
 				err = CHECK_ERROR(zfp_ = gzdopen(fd, "rb"));
 				compressionType_ = CompressionType::GZIP;
+#ifdef WITH_BZIP2   // bowtie2-crossplatform: native bzip2 input
+                        } else if (bz2IsFile(fd)) {
+				err = CHECK_ERROR(bz2fp_ = bz2FdOpen(fd, filename));
+				compressionType_ = CompressionType::BZIP2;
+#endif
 #ifdef WITH_ZSTD
                         } else if (is_zstd_file(fd)) {
 				SET_BINARY_MODE(fd);

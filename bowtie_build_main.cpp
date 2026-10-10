@@ -24,6 +24,12 @@
 #include "tokenize.h"
 #include "ds.h"
 #include "mem_ids.h"
+#ifdef _WIN32   // bowtie2-crossplatform: binary-mode I/O (see main)
+#include <fcntl.h>
+#include <io.h>
+#include <stdio.h>
+#include <stdlib.h>
+#endif
 
 using namespace std;
 
@@ -41,6 +47,15 @@ extern "C" {
  * bowtie-build.
  */
 int main(int argc, const char **argv) {
+#ifdef _WIN32
+	// bowtie2-crossplatform: Windows text mode turns \n into \r\n on output
+	// and CRLF into LF inside read(), which breaks SAM/FASTA output and the
+	// compressed-input magic-number checks. _fmode makes every file opened
+	// from here on binary; the standard streams are already open.
+	_fmode = _O_BINARY;
+	_setmode(_fileno(stdout), _O_BINARY);
+	_setmode(_fileno(stderr), _O_BINARY);
+#endif
 	if(argc > 2 && strcmp(argv[1], "-A") == 0) {
 		const char *file = argv[2];
 		ifstream in;

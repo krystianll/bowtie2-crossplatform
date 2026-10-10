@@ -45,14 +45,27 @@ ifneq (,$(findstring mingw,$(shell $(CXX) --version)))
   MINGW := 1
 endif
 
+# bowtie2-crossplatform: a native Windows build (an MSYS2 UCRT64/CLANGARM64/... shell) uses the
+# active toolchain. `$(CXX) --version` need not say "mingw" there, and the
+# cross-compiler names below do not exist. `uname -m` reports the MSYS
+# runtime's machine, so take ARCH from the compiler's target instead.
+ifeq ($(OS),Windows_NT)
+  WINDOWS := 1
+  MINGW := 1
+  NATIVE_WINDOWS := 1
+  ARCH ?= $(firstword $(subst -, ,$(shell $(CXX) -dumpmachine)))
+endif
+
 ifeq (1, $(MINGW))
   LDLIBS := $(subst -lrt,,$(LDLIBS))
-  CXX = x86_64-w64-mingw32-g++-posix
-  CC  = x86_64-w64-mingw32-gcc-posix
-  AR  = x86_64-w64-mingw32-ar
-  RC  = x86_64-w64-mingw32-windres
-  LD  = x86_64-w64-mingw32-ld
-  STRIP = x86_64-w64-mingw32-strip
+  ifneq (1, $(NATIVE_WINDOWS))   # bowtie2-crossplatform: cross-compiler names only when cross-compiling
+    CXX = x86_64-w64-mingw32-g++-posix
+    CC  = x86_64-w64-mingw32-gcc-posix
+    AR  = x86_64-w64-mingw32-ar
+    RC  = x86_64-w64-mingw32-windres
+    LD  = x86_64-w64-mingw32-ld
+    STRIP = x86_64-w64-mingw32-strip
+  endif
 endif
 
 # POSIX memory-mapped files not currently supported on Windows
@@ -213,6 +226,13 @@ ifeq (1, $(WITH_ZSTD))
   SHARED_CPPS += zstd_decompress.cpp
 endif
 
+# bowtie2-crossplatform: native bzip2 read input (bzip2_reader.cpp)
+ifeq (1, $(WITH_BZIP2))
+  LDLIBS += -lbz2
+  CXXFLAGS += -DWITH_BZIP2
+  SEARCH_CPPS += bzip2_reader.cpp
+endif
+
 SEARCH_CPPS_MAIN := $(SEARCH_CPPS) bowtie_main.cpp
 
 DP_CPPS := qual.cpp aligner_sw.cpp aligner_result.cpp ref_coord.cpp mask.cpp \
@@ -234,6 +254,10 @@ else ifeq (0,$(shell $(CXX) -E -fsanitize=address btypes.h > /dev/null 2>&1; ech
 else ifeq (0,$(shell $(CXX) -E -fsanitize=undefined btypes.h > /dev/null 2>&1; echo $$?))
   SANITIZER_FLAGS := -fsanitize=undefined
 endif
+
+# bowtie2-crossplatform: shown by --version. Override for distributed builds (e.g. BUILD_HOST=release)
+# so the binaries do not carry the build machine's name.
+BUILD_HOST ?= $(shell echo $${HOSTNAME:-`hostname`})
 
 DEBUG_FLAGS    := -O0 -g3
 RELEASE_FLAGS  := -O3 -funroll-loops -g3
@@ -303,9 +327,14 @@ GENERAL_LIST := $(wildcard scripts/*.sh) \
   TUTORIAL \
   BOWTIE2_VERSION
 
+# bowtie2-crossplatform: WINDOWS_STATIC=0 links the toolchain and compression libraries as DLLs
+# (for an installer that ships them once for several tools).
+WINDOWS_STATIC ?= 1
 ifeq (1,$(WINDOWS))
   BOWTIE2_BIN_LIST := $(BOWTIE2_BIN_LIST) bowtie2.bat bowtie2-build.bat bowtie2-inspect.bat
-  CXXFLAGS += -static-libgcc -static-libstdc++ -static
+  ifeq (1,$(WINDOWS_STATIC))
+    CXXFLAGS += -static-libgcc -static-libstdc++ -static
+  endif
 endif
 
 # This is helpful on Windows under MinGW/MSYS, where Make might go for
@@ -337,7 +366,7 @@ both-sanitized: $(BOWTIE2_BIN_BOTH_LIST_SAN) ;
 
 DEFS := -fno-strict-aliasing \
   -DBOWTIE2_VERSION="\"`cat BOWTIE2_VERSION`\"" \
-  -DBUILD_HOST="\"$${HOSTNAME:-`hostname`}\"" \
+  -DBUILD_HOST="\"$(BUILD_HOST)\"" \
   -DBUILD_TIME="\"`date -u`\"" \
   -DCOMPILER_VERSION="\"`$(CXX) -v 2>&1 | tail -1`\"" \
   $(FILE_FLAGS) \
