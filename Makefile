@@ -330,8 +330,12 @@ GENERAL_LIST := $(wildcard scripts/*.sh) \
 # bowtie2-crossplatform: WINDOWS_STATIC=0 links the toolchain and compression libraries as DLLs
 # (for an installer that ships them once for several tools).
 WINDOWS_STATIC ?= 1
+# bowtie2-crossplatform: a native Windows build makes .exe launchers (bowtie2_launcher.c, rules
+# below) instead of the .bat wrappers, which need Perl and Python.
+BOWTIE2_LAUNCHERS := bowtie2.exe bowtie2-build.exe bowtie2-inspect.exe
+WINDOWS_WRAPPERS := $(if $(NATIVE_WINDOWS),$(BOWTIE2_LAUNCHERS),bowtie2.bat bowtie2-build.bat bowtie2-inspect.bat)
 ifeq (1,$(WINDOWS))
-  BOWTIE2_BIN_LIST := $(BOWTIE2_BIN_LIST) bowtie2.bat bowtie2-build.bat bowtie2-inspect.bat
+  BOWTIE2_BIN_LIST := $(BOWTIE2_BIN_LIST) $(WINDOWS_WRAPPERS)   # bowtie2-crossplatform: was the .bat files
   ifeq (1,$(WINDOWS_STATIC))
     CXXFLAGS += -static-libgcc -static-libstdc++ -static
   endif
@@ -351,7 +355,7 @@ SRC_PKG_LIST = $(wildcard *.h) \
   $(GENERAL_LIST)
 
 ifeq (1,$(WINDOWS))
-  BIN_PKG_LIST := $(GENERAL_LIST) bowtie2.bat bowtie2-build.bat bowtie2-inspect.bat
+  BIN_PKG_LIST := $(GENERAL_LIST) $(filter %.bat,$(WINDOWS_WRAPPERS))   # bowtie2-crossplatform: was the .bat files
 else
   BIN_PKG_LIST := $(GENERAL_LIST)
 endif
@@ -574,6 +578,23 @@ bowtie2-inspect.bat:
 	echo "@echo off" > bowtie2-inspect.bat
 	echo "python3 %~dp0/bowtie2-inspect %*" >> bowtie2-inspect.bat
 
+# bowtie2-crossplatform: native launchers (one C source, one -DLAUNCH_* per tool). On Linux/macOS
+# the scripts stay; `make launchers-test` compares the launchers with them (xplat_tests/README.md).
+LAUNCHER_FLAGS = -O2 -Wall $(CPPFLAGS) $(if $(and $(WINDOWS),$(filter 1,$(WINDOWS_STATIC))),-static)
+
+bowtie2.exe: bowtie2_launcher.c
+	$(CC) $(LAUNCHER_FLAGS) -DLAUNCH_ALIGN -o $@ $< $(LDFLAGS) -lzstd -llz4 -lbz2 -lz
+
+bowtie2-build.exe: bowtie2_launcher.c
+	$(CC) $(LAUNCHER_FLAGS) -DLAUNCH_BUILD -o $@ $< $(LDFLAGS) -lz
+
+bowtie2-inspect.exe: bowtie2_launcher.c
+	$(CC) $(LAUNCHER_FLAGS) -DLAUNCH_INSPECT -o $@ $< $(LDFLAGS)
+
+.PHONY: launchers-test
+launchers-test:
+	xplat_tests/run_parity.sh $(LAUNCHERS_TEST_DIR)
+
 .PHONY: bowtie2-src-pkg
 bowtie2-src-pkg: $(SRC_PKG_LIST)
 	chmod a+x scripts/*.sh scripts/*.pl
@@ -587,13 +608,14 @@ bowtie2-src-pkg: $(SRC_PKG_LIST)
 	rm -rf .src.tmp
 
 .PHONY: bowtie2-bin-pkg
+# bowtie2-crossplatform: the launchers (BOWTIE2_LAUNCHERS) are already .exe; no second suffix
 bowtie2-bin-pkg: PKG_DIR := bowtie2-$(VERSION)-$(if $(USE_SRA),sra-)$(if $(MACOS),macos,$(if $(MINGW),mingw,linux))-$(ARCH)
 bowtie2-bin-pkg: $(BIN_PKG_LIST) $(BOWTIE2_BIN_LIST) $(BOWTIE2_BIN_LIST_DBG)
 	chmod a+x scripts/*.sh scripts/*.pl
 	rm -rf .bin.tmp
 	mkdir -p .bin.tmp/$(PKG_DIR)
 	if [ -f bowtie2-align-s.exe ] ; then \
-		zip tmp.zip $(BIN_PKG_LIST) $(addsuffix .exe,$(BOWTIE2_BIN_LIST) $(BOWTIE2_BIN_LIST_DBG)) ; \
+		zip tmp.zip $(BIN_PKG_LIST) $(addsuffix .exe,$(filter-out $(BOWTIE2_LAUNCHERS),$(BOWTIE2_BIN_LIST)) $(BOWTIE2_BIN_LIST_DBG)) $(filter $(BOWTIE2_LAUNCHERS),$(BOWTIE2_BIN_LIST)) ; \
 	else \
 		zip tmp.zip $(BIN_PKG_LIST) $(BOWTIE2_BIN_LIST) $(BOWTIE2_BIN_LIST_DBG) ; \
 	fi
